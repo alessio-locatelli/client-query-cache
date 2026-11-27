@@ -3,7 +3,7 @@
 # dependencies = ["client-query-cache", "requests-cache>=1.3.3"]
 #
 # [tool.uv.sources]
-# client-query-cache = { path = "../..", editable = true }
+# client-query-cache = { path = "../.." }
 # ///
 
 import json

@@ -3,7 +3,7 @@
 # dependencies = ["client-query-cache", "celery>=5.6.2"]
 #
 # [tool.uv.sources]
-# client-query-cache = { path = "../..", editable = true }
+# client-query-cache = { path = "../.." }
 # ///
 
 import os

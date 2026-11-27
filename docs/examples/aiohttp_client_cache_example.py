@@ -3,7 +3,7 @@
 # dependencies = ["client-query-cache", "aiohttp-client-cache[mongodb]>=0.15.0"]
 #
 # [tool.uv.sources]
-# client-query-cache = { path = "../..", editable = true }
+# client-query-cache = { path = "../.." }
 # ///
 
 import asyncio

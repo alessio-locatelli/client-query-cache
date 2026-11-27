@@ -62,10 +62,12 @@ typecheck-examples:
     # 723 environments resolve dependencies without the project lockfile.
     # uv --quiet: The default is normal progress output. We override it because this
     # loop should emphasize diagnostics.
+    # --only-group test-tools: The default also installs the project. The example
+    # environments supply the checkout wheel, so the type checker only needs its tools.
     for example in docs/examples/*.py; do
-        script_python="$(env -u UV_LOCKED uv sync --quiet --script "${example}" --output-format json | uv run -- python -c 'import json, sys; print(json.load(sys.stdin)["sync"]["environment"]["python"]["path"])')"
+        script_python="$(env -u UV_LOCKED uv sync --quiet --script "${example}" --output-format json | uv run --only-group test-tools -- python -c 'import json, sys; print(json.load(sys.stdin)["sync"]["environment"]["python"]["path"])')"
         # --python-executable: The default is mypy's interpreter. We override it because each example has its own installed dependencies.
-        uv run -- mypy --python-executable "${script_python}" "${example}"
+        env -u PYTHONPATH uv run --only-group test-tools -- mypy --python-executable "${script_python}" "${example}"
     done
 
 ci-lint:

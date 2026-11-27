@@ -3,7 +3,7 @@
 # dependencies = ["client-query-cache", "cachier[mongo]>=4.2.0"]
 #
 # [tool.uv.sources]
-# client-query-cache = { path = "../..", editable = true }
+# client-query-cache = { path = "../.." }
 # ///
 
 import os

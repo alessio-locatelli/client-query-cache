@@ -3,7 +3,7 @@
 # dependencies = ["client-query-cache", "py-abac>=0.4.1"]
 #
 # [tool.uv.sources]
-# client-query-cache = { path = "../..", editable = true }
+# client-query-cache = { path = "../.." }
 # ///
 
 import os
