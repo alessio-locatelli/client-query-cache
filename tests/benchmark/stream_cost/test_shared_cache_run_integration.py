@@ -24,7 +24,6 @@ from development.benchmarks.stream_cost.shared_cache.dataset import seed_catalog
 from development.benchmarks.stream_cost.shared_cache.protocol import (
     Registration,
     smoke_cells,
-    validation_failure,
 )
 from development.benchmarks.stream_cost.topology import (
     IsolatedReplicaSet,
@@ -130,14 +129,15 @@ def _no_children() -> bool:
     ]
 
 
-def _assert_smoke_window(
-    record: JsonDict, cell: Cell, registration: Registration
-) -> None:
+def _assert_smoke_window(record: JsonDict, cell: Cell) -> None:
     path, workload = cell.path, cell.workload
     workers = cast("list[JsonDict]", record["workers_measured"])
     assert (record["workload"], record["path"]) == (workload, path)
     assert record["healthy"] is True, cell
     assert record["completed"] == record["offered"]
+    for worker in workers:
+        loop = cast("JsonDict", worker["loop"])
+        assert loop["errors"] == loop["overflow"] == 0
     assert len(workers) == cell.workers
     assert record["harness_includes"] == list(window.HARNESS_INCLUDES)
     assert cast("NonNegativeInt", record["server_memory_bytes"]) > 0
@@ -172,8 +172,17 @@ def _assert_smoke_window(
     if workload == "active" and path != "direct":
         lag_owner = owner if path != "independent" else workers[0]["lag"]
         assert cast("JsonDict", lag_owner)["invalidations"] == 200
-    if workload == "cold" and path != "direct":
-        assert validation_failure(record, registration) is None
+    if workload == "cold":
+        assert record["completed"] == record["identities"]
+        if path != "direct":
+            outcomes = [
+                cast("dict[str, NonNegativeInt]", worker["outcomes"])
+                for worker in workers
+            ]
+            assert sum(outcome["misses"] for outcome in outcomes) == record["completed"]
+            assert all(
+                outcome["hits"] == outcome["bypasses"] == 0 for outcome in outcomes
+            )
 
 
 @pytest.mark.timeout(120)
@@ -432,7 +441,7 @@ def test_smoke_command_records_every_cell(
         for path in ("direct", "independent", candidate)
     }
     for record, cell in zip(records, smoke_cells(registration), strict=True):
-        _assert_smoke_window(record, cell, registration)
+        _assert_smoke_window(record, cell)
     environment = cast("JsonDict", report["environment"])
     assert environment["configuration_sha256"] == registration.digest
     native = cast("JsonDict", environment["native_extension"])
