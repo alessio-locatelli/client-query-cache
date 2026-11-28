@@ -9,6 +9,7 @@ import bson
 from bson.errors import BSONError
 from pymongo.errors import OperationFailure, PyMongoError
 
+from client_query_cache._core.async_cleanup import join_cleanup
 from client_query_cache._core.errors import (
     StreamLifecycleError,
     StreamStartupError,
@@ -53,18 +54,6 @@ if TYPE_CHECKING:
 
 
 logger = logging.getLogger(__name__)
-
-
-async def _join_cleanup[T](task: asyncio.Task[T]) -> T:
-    cancelled = False
-    while not task.done():
-        try:
-            await asyncio.shield(task)
-        except asyncio.CancelledError:
-            cancelled = True
-    if cancelled and task.exception() is None:
-        raise asyncio.CancelledError
-    return task.result()
 
 
 class DatabaseStreamSupervisor:
@@ -168,7 +157,7 @@ class DatabaseStreamSupervisor:
             self._shutdown_task.done() and self._stream is not self._closed_stream
         ):
             self._shutdown_task = asyncio.create_task(self._finish_stop())
-        await _join_cleanup(self._shutdown_task)
+        await join_cleanup(self._shutdown_task)
 
     async def _finish_stop(self) -> None:
         try:
@@ -520,7 +509,7 @@ class ChangeStreamCoordinator:
             self._shutdown_task = asyncio.create_task(
                 self._finish_close(supervisors, activations)
             )
-        await _join_cleanup(self._shutdown_task)
+        await join_cleanup(self._shutdown_task)
 
     async def _finish_close(
         self,

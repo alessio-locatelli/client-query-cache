@@ -1,3 +1,6 @@
+import subprocess
+import sys
+
 import pytest
 
 import client_query_cache
@@ -101,3 +104,37 @@ def test_cache_configuration_is_one_class_across_public_packages() -> None:
     assert client_query_cache.synchronous.CacheCoreConfig is exported
     assert client_query_cache.asynchronous.CacheCoreConfig is exported
     assert "CacheCoreConfig" in client_query_cache.__all__
+
+
+def test_owner_import_skips_worker_adapters() -> None:
+    subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            """
+import sys
+
+import client_query_cache
+
+assert client_query_cache.SharedCacheServer is not None
+assert "SharedCacheManager" in dir(client_query_cache)
+assert "SharedCachedCollection" in dir(client_query_cache)
+assert "client_query_cache._shared.adapters" not in sys.modules
+assert "client_query_cache.asynchronous" not in sys.modules
+from client_query_cache import SharedCachedCollection, SharedCacheManager
+from client_query_cache.synchronous import shared
+
+assert SharedCachedCollection is shared.SharedCachedCollection
+assert SharedCacheManager is shared.SharedCacheManager
+""",
+        ],
+        check=True,
+    )
+
+
+def test_missing_root_export_raises_attribute_error() -> None:
+    assert not hasattr(client_query_cache, "NonexistentExport")
+
+
+def test_root_exports_are_discoverable() -> None:
+    assert set(client_query_cache.__all__) <= set(dir(client_query_cache))

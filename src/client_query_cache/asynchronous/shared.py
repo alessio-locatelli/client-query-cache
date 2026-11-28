@@ -4,6 +4,7 @@ import asyncio
 from collections.abc import Mapping
 from typing import TYPE_CHECKING, Any, Self, override
 
+from client_query_cache._core.async_cleanup import join_cleanup
 from client_query_cache._core.errors import CacheClosedError
 from client_query_cache._shared.adapters import (
     AsyncSharedCachedCollection as _SharedCachedCollection,
@@ -19,7 +20,6 @@ from client_query_cache._shared.attachment import (
     AsyncLocalIndex,
     attachment_unavailable,
 )
-from client_query_cache.asynchronous.streams import _join_cleanup
 
 if TYPE_CHECKING:
     from pymongo import AsyncMongoClient
@@ -112,7 +112,7 @@ class SharedCacheManager[DocumentType: Mapping[str, Any]](
         if self._cleanup is None:
             self._closed = True
             self._cleanup = asyncio.create_task(super().close())
-        await _join_cleanup(self._cleanup)
+        await join_cleanup(self._cleanup)
 
     async def __aexit__(self, *_exc: object) -> None:
         await self.close()

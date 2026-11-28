@@ -1,3 +1,5 @@
+from typing import TYPE_CHECKING
+
 from ._core.errors import (
     CacheClosedError,
     CacheConfigurationError,
@@ -29,12 +31,13 @@ from .synchronous import (
     RetentionDeclineReason,
     RetentionRecordKind,
     SelectiveInvalidation,
-    SharedCachedCollection,
-    SharedCacheManager,
     StreamCostSnapshot,
     StreamHealthSnapshot,
     StreamHealthStatus,
 )
+
+if TYPE_CHECKING:
+    from .synchronous import SharedCachedCollection, SharedCacheManager
 
 __all__ = [
     "BypassReason",
@@ -69,3 +72,19 @@ __all__ = [
     "StreamHealthStatus",
     "UnsupportedCacheRequestError",
 ]
+
+
+def __getattr__(name: str) -> object:
+    if name in {"SharedCacheManager", "SharedCachedCollection"}:
+        from . import synchronous  # noqa: PLC0415 - The owner does not use worker adapters.
+
+        globals().update(
+            SharedCacheManager=synchronous.SharedCacheManager,
+            SharedCachedCollection=synchronous.SharedCachedCollection,
+        )
+        return globals()[name]
+    raise AttributeError(name)
+
+
+def __dir__() -> list[str]:
+    return sorted(set(globals()).union(__all__))
