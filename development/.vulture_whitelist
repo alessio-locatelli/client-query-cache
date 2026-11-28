@@ -1,3 +1,4 @@
+__dir__  # Python calls the package's module hook for dir(client_query_cache).
 nominal_upper  # unused variable (development/benchmarks/stream_cost/await_decision.py:46)
 holm_step_upper  # unused variable (development/benchmarks/stream_cost/await_decision.py:47)
 adjusted_p_value  # unused variable (development/benchmarks/stream_cost/await_decision.py:49)

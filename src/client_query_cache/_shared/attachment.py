@@ -10,6 +10,7 @@ import weakref
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Final
 
+from client_query_cache._core.async_cleanup import join_cleanup
 from client_query_cache._core.errors import (
     CacheClosedError,
     CacheConfigurationError,
@@ -31,7 +32,6 @@ from client_query_cache._types import (
     PositiveFloat,
     PositiveInt,
 )
-from client_query_cache.asynchronous.streams import _join_cleanup
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -348,7 +348,7 @@ class AsyncLocalIndex:
     async def attach(cls, config: AttachmentConfig) -> AsyncLocalIndex:
         handshake = asyncio.create_task(asyncio.to_thread(control_handshake, config))
         try:
-            control = await _join_cleanup(handshake)
+            control = await join_cleanup(handshake)
         except asyncio.CancelledError:
             handshake.result().sock.close()
             raise

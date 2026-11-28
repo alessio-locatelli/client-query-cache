@@ -44,13 +44,17 @@ from client_query_cache import (
     SharedCacheServer,
 )
 from client_query_cache._types import NonNegativeInt, PositiveInt
-from client_query_cache.asynchronous import SharedCachedCollection, SharedCacheManager
 
 if TYPE_CHECKING:
     from collections.abc import AsyncGenerator, Generator
     from http.client import HTTPResponse
 
     from pymongo.asynchronous.collection import AsyncCollection
+
+    from client_query_cache.asynchronous import (
+        SharedCachedCollection,
+        SharedCacheManager,
+    )
 
 DATABASE_NAME = "client_query_cache_example_fastapi_shared"
 MONGODB_URI = os.getenv(
@@ -127,6 +131,8 @@ def resources(request: Request) -> Resources:
 
 # --8<-- [start:application]
 def create_app(connection: SharedCacheConnection) -> FastAPI:
+    from client_query_cache.asynchronous import SharedCacheManager  # noqa: PLC0415 - Import in the worker's app factory.
+
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
         reads = DatabaseReads()
